@@ -113,4 +113,191 @@ val toString_thm = Q.store_thm("toString_thm",
     \\ qspec_then`maxSmall_DEC`mp_tac DIVISION
     \\ simp[] ));
 
+
+(* fromString Definitions *)
+val fromChar_def = Define`
+  fromChar char = ORD char - ORD #"0"`;
+
+val fromChar_safe_def = Define`
+  fromChar_safe char =
+    case char of
+      | #"0" => SOME 0n
+      | #"1" => SOME 1n
+      | #"2" => SOME 2n
+      | #"3" => SOME 3n
+      | #"4" => SOME 4n
+      | #"5" => SOME 5n
+      | #"6" => SOME 6n
+      | #"7" => SOME 7n
+      | #"8" => SOME 8n
+      | #"9" => SOME 9n
+      | _    => NONE`;
+
+(* Equivalence between the safe and unsafe versions of fromChar *)
+val fromChar_eq_safe = Q.store_thm("fromChar_eq_safe",
+  `∀char. isDigit char ⇒ fromChar_safe char = SOME (fromChar char)`,
+  Cases_on `char` \\ rw [isDigit_def,fromChar_safe_def,fromChar_def]
+  \\ rpt (pop_assum (ASSUME_TAC o CONV_RULE (BINOP_CONV (TRY_CONV numLib.num_CONV)))
+  \\ fs [LE]));
+
+val fromChars_range_def = Define`
+  fromChars_range l 0       str = 0 ∧
+  fromChars_range l (SUC n) str =
+    fromChars_range l n str * 10 + fromChar (strsub str (l + n))`;
+
+val fromChars_range_safe_def = Define`
+  fromChars_range_safe l 0       str = SOME 0 ∧
+  fromChars_range_safe l (SUC n) str =
+    let rest = OPTION_MAP ($* 10n) (fromChars_range_safe l n str) and
+        head = fromChar_safe (strsub str (l + n))
+    in OPTION_MAP2 $+ rest head`;
+
+val fromChars_range_eq_safe = Q.store_thm("fromChars_range_eq_safe",
+  `∀str l r. EVERY isDigit str ∧ l + r <= STRLEN str ⇒
+     fromChars_range_safe l r (strlit str) =
+     SOME (fromChars_range l r (strlit str))`,
+  Induct_on `r`
+  \\ rw [fromChars_range_safe_def
+        , fromChars_range_def
+        , fromChar_eq_safe
+        , EVERY_EL]);
+
+val fromChars_def = tDefine "fromChars" `
+  fromChars 0 str = 0n ∧ (* Shouldn't happend *)
+  fromChars n str =
+    if n ≤ padLen_DEC
+    then fromChars_range 0 n str
+    (* TODO: This let issue is annoying *)
+    else let n'    = n - padLen_DEC;
+             front = fromChars n' str * maxSmall_DEC;
+             back  = fromChars_range n' padLen_DEC str
+         in front + back`
+(wf_rel_tac `measure FST` \\ rw [padLen_DEC_eq]);
+val fromChars_ind = theorem"fromChars_ind"
+
+val fromChars_safe_def = tDefine "fromChars_safe" `
+  fromChars_safe 0 str = SOME 0n ∧ (* Shouldn't happend *)
+  fromChars_safe n str =
+    if n ≤ padLen_DEC
+    then fromChars_range_safe 0 n str
+    (* TODO: This let issue is annoying *)
+    else let n'    = n - padLen_DEC
+         in let front = OPTION_MAP ($* maxSmall_DEC) (fromChars_safe n' str) and
+                back  = fromChars_range_safe n' padLen_DEC str
+            in OPTION_MAP2 $+ front back`
+(wf_rel_tac `measure FST` \\ rw [padLen_DEC_eq]);
+val fromChars_safe_ind = theorem"fromChars_safe_ind"
+
+val fromChars_eq_safe = Q.store_thm("fromChars_eq_safe",
+  `∀n s. EVERY isDigit (explode s) ∧ n ≤ strlen s ⇒
+    fromChars_safe n s = SOME (fromChars n s)`,
+  let val tactics = [fromChars_safe_def
+                    , fromChars_def
+                    , fromChars_range_eq_safe
+                    , strlen_def
+                    , explode_def]
+  in recInduct fromChars_safe_ind
+  \\ CONJ_TAC >- rw tactics
+  \\ rw [] \\ Cases_on `str'`
+  \\ rw tactics
+  \\ fs tactics
+  end);
+
+val fromString_def = Define`
+  fromString str = fromChars (strlen str) str`;
+
+val fromString_safe_def = Define`
+  fromString_safe str = fromChars_safe (strlen str) str`;
+
+val fromString_eq_safe = Q.store_thm("fromString_eq_safe",
+  `∀s. EVERY isDigit (explode s) ⇒ fromString_safe s = SOME (fromString s)`,
+  simp [fromString_def, fromString_safe_def, fromChars_eq_safe]);
+
+(* fromString auxiliar lemmas *)
+
+val strsub_substring_0_thm = Q.store_thm("str_substring_0_thm",
+  `∀m n l. m < n ⇒ strsub (substring l 0 n) m = strsub l m`,
+  Cases_on `l` \\ Cases_on `s = ""`
+      >- rw [strsub_def,substring_thm,substring_def,implode_def,explode_aux_def]
+      >- (rw [strsub_def]
+          \\ `0 < strlen (strlit s)` by (Cases_on `s` \\ rw [strlen_def,STRLEN_DEF])
+          \\ rw [substring_thm]
+          \\ Cases_on `n ≤ STRLEN s`
+          \\ fs [MIN_DEF,strsub_def, implode_def,GSYM TAKE_SEG, EL_TAKE,SEG_LENGTH_ID]));
+
+val fromChars_range_0_substring_thm = Q.store_thm("fromChars_range_0_substring_thm",
+  `∀m r s. r ≤ m ⇒ fromChars_range 0 r s = fromChars_range 0 r (substring s 0 m)`,
+  Induct_on `r` \\ rw [fromChars_range_def,strsub_substring_0_thm]);
+
+val fromChars_range_split = Q.store_thm("fromChars_range_split",
+  `∀m n s. m ≠ 0 ∧ m < n
+    ⇒ fromChars_range 0 n s = 10 ** m * fromChars_range 0 (n - m) s + fromChars_range (n - m) m s`,
+  Induct_on `m`
+  >- rw []
+  >- (`∀m k w. 10**SUC m*k + 10*w = 10*(10**m*k + w)` by simp [EXP]
+      \\ Cases_on `n`
+      \\ rw [fromChars_range_def]
+      \\ Cases_on `m`
+      \\ rw [fromChars_range_def]));
+
+val MAP_REVERSE_thm = Q.store_thm("MAP_REVERSE_thm",
+  `∀x f. x ≠ [] ⇒ MAP f (REVERSE x) = f (LAST x) :: MAP f (REVERSE (FRONT x))`,
+  recInduct SNOC_INDUCT
+  \\ rw [FRONT_APPEND]);
+
+(* fromString proofs *)
+val fromChar_thm = Q.store_thm("fromChar_thm",
+  `∀ h. isDigit h ⇒ fromChar h = num_from_dec_string [h]`,
+  Cases_on `h`
+  \\ rw [isDigit_def]
+  \\ rpt (pop_assum (ASSUME_TAC o CONV_RULE (BINOP_CONV (TRY_CONV numLib.num_CONV)))
+          \\ fs [LE,fromChar_def]));
+
+val fromChars_range_thm = Q.store_thm("fromChars_range_thm",
+  `∀ str. EVERY isDigit str ⇒
+          fromChars_range 0 (STRLEN str) (strlit str) = num_from_dec_string str`,
+  recInduct SNOC_INDUCT
+  \\ rw [fromChars_range_def
+        ,ASCIInumbersTheory.num_from_dec_string_def]
+  \\ `isDigit x` by fs [EVERY_SNOC]
+  \\ rw [ASCIInumbersTheory.s2n_def
+        , numposrepTheory.l2n_def
+        , MAP_REVERSE_thm
+        , substring_thm
+        , MIN_DEF, implode_def
+        , EL_LENGTH_SNOC
+        , fromChar_thm |> computeLib.RESTR_EVAL_RULE [``fromChar``,``isDigit``]
+        , fromChars_range_0_substring_thm  |> SPEC_ALL
+                                           |> INST [``m : num`` |->  ``r : num``]
+                                           |> SIMP_RULE std_ss []
+                                           |> Once
+        , SEG_0_SNOC |> SPEC ``LENGTH l``
+                     |> SPEC ``l : 'a list``
+                     |> SIMP_RULE std_ss [SEG_LENGTH_ID]]
+  \\ fs [ASCIInumbersTheory.s2n_def,EVERY_SNOC]
+  \\  Cases_on `l`
+  \\ rw [fromChars_range_def,fromChar_def]);
+
+val fromChars_range_eq = Q.store_thm("fromChars_range_eq",
+  `∀n s. n ≤ (strlen s) ⇒ fromChars n s = fromChars_range 0 n s`,
+  recInduct fromChars_ind
+  \\ rw [fromChars_def
+        , fromChars_range_def
+        , padLen_DEC_eq
+        , maxSmall_DEC_def
+        , fromChars_range_split |> SPEC ``8n`` |> SIMP_RULE std_ss [] |> GSYM]);
+
+val fromString_fromChars_range = Q.store_thm("fromString_fromChars_range",
+  `∀str. fromString str = fromChars_range 0 (strlen str) str`,
+  simp [fromString_def, fromChars_range_eq]);
+
+val fromString_thm = Q.store_thm("fromString_thm",
+  `∀str. EVERY isDigit str ⇒ fromString (strlit str) = num_from_dec_string str`,
+  simp [fromString_fromChars_range,fromChars_range_thm]);
+
+val fromString_safe_thm = Q.store_thm("fromString_safe_thm",
+  `∀str. EVERY isDigit str ⇒
+    fromString_safe (strlit str) = SOME (num_from_dec_string str)`,
+  simp [fromString_eq_safe, fromString_thm]);
+
 val _ = export_theory();
