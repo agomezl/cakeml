@@ -53,6 +53,53 @@ val tostring_side = Q.prove(
   \\ intLib.COOPER_TAC)
   |> update_precondition;
 
+val result = translate fromChar_def;
+val result = translate fromChars_range_def;
+
+val _ = save_thm("fromChars_ind",
+  fromChars_ind |> REWRITE_RULE[maxSmall_DEC_def,padLen_DEC_eq]);
+val _ = add_preferred_thy "-";
+val result = translate (fromChars_def
+  |> REWRITE_RULE[maxSmall_DEC_def,padLen_DEC_eq]);
+
+val result = translate fromString_def;
+
+val fromString_side = Q.prove(
+  `∀x. fromstring_side x = T`,
+  rw [definition"fromstring_side_def"
+     , Once (theorem"fromchars_side_def")
+     , theorem"fromchars_range_side_def"]
+  \\ `x1 ≤ strlen x` by rw []
+  \\ qpat_x_assum `strlen _ = SUC _` (K ALL_TAC)
+  \\ completeInduct_on `x1`
+  \\ rw [Once (theorem"fromchars_side_def")
+        , theorem"fromchars_range_side_def"])
+  |> update_precondition;
+
+
+val result = translate fromChar_safe_def;
+val result = translate fromChars_range_safe_def;
+
+val _ = save_thm("fromChars_safe_ind",
+  fromChars_safe_ind |> REWRITE_RULE[maxSmall_DEC_def,padLen_DEC_eq]);
+val _ = add_preferred_thy "-";
+val result = translate (fromChars_safe_def
+  |> REWRITE_RULE[maxSmall_DEC_def,padLen_DEC_eq]);
+
+val result = translate fromString_safe_def;
+
+val fromString_safe_side = Q.prove(
+  `∀x. fromstring_safe_side x = T`,
+  rw [definition"fromstring_safe_side_def"
+     , Once (theorem"fromchars_safe_side_def")
+     , theorem"fromchars_range_safe_side_def"]
+  \\ `x1 ≤ strlen x` by rw []
+  \\ qpat_x_assum `strlen _ = SUC _` (K ALL_TAC)
+  \\ completeInduct_on `x1`
+  \\ rw [Once (theorem"fromchars_safe_side_def")
+        , theorem"fromchars_range_safe_side_def"])
+  |> update_precondition;
+
 val _ = ml_prog_update (close_module NONE);
 
 val _ = export_theory();
