@@ -59,6 +59,7 @@ val result = translate fromChars_range_def;
 val _ = save_thm("fromChars_ind",
   fromChars_ind |> REWRITE_RULE[maxSmall_DEC_def,padLen_DEC_eq]);
 val _ = add_preferred_thy "-";
+(* It would be nice to not polude the theory with some redundant crap *)
 val result = translate (fromChars_def
   |> REWRITE_RULE[maxSmall_DEC_def,padLen_DEC_eq]);
 

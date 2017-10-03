@@ -145,6 +145,37 @@ val fromChars_range_def = Define`
   fromChars_range l (SUC n) str =
     fromChars_range l n str * 10 + fromChar (strsub str (l + n))`;
 
+val fromChars_range_acc_def = Define`
+  fromChars_range_acc acc l  0      str = acc : num ∧
+  fromChars_range_acc acc l (SUC n) str =
+    fromChars_range_acc (acc*10 + fromChar (strsub str l)) (l+1) n str`;
+
+val fromChars_range_acc_0 = Q.store_thm("fromChars_range_acc_0",
+  `∀l r s. fromChars_range_acc 0 l (SUC r) s =
+    fromChars_range_acc (fromChars_range_acc 0 l r s) (l + r) (SUC 0) s`,
+  Induct_on `r` >- rw [fromChars_range_acc_def]
+  \\ fs [fromChars_range_acc_def]
+  once_rewrite_tac [fromChars_range_acc_def]
+
+
+val fromChars_range_acc_thm = Q.store_thm("fromChars_range_acc_thm",
+  `∀l r s acc. fromChars_range_acc acc l (SUC r) s =
+    fromChar (strsub s (l + r)) + 10*fromChars_range_acc acc l r s`,
+  Induct_on `r` >- rw [fromChars_range_acc_def]
+  \\ once_rewrite_tac [fromChars_range_acc_def]
+  \\ rw [ADD1]
+);
+
+val fromChars_range_eq_acc = Q.store_thm("fromChars_range_eq_acc",
+  `∀l r s. l + r ≤ strlen s ⇒ fromChars_range_acc 0 l r s = fromChars_range l r s`,
+  Induct_on `r`
+  >- rw [fromChars_range_def,fromChars_range_acc_def]
+  \\
+
+
+);
+
+
 val fromChars_range_safe_def = Define`
   fromChars_range_safe l 0       str = SOME 0 ∧
   fromChars_range_safe l (SUC n) str =
@@ -181,10 +212,10 @@ val fromChars_safe_def = tDefine "fromChars_safe" `
     if n ≤ padLen_DEC
     then fromChars_range_safe 0 n str
     (* TODO: This let issue is annoying *)
-    else let n'    = n - padLen_DEC
-         in let front = OPTION_MAP ($* maxSmall_DEC) (fromChars_safe n' str) and
-                back  = fromChars_range_safe n' padLen_DEC str
-            in OPTION_MAP2 $+ front back`
+    else let n'    = n - padLen_DEC;
+             front = OPTION_MAP ($* maxSmall_DEC) (fromChars_safe n' str);
+             back  = fromChars_range_safe n' padLen_DEC str
+         in OPTION_MAP2 $+ front back`
 (wf_rel_tac `measure FST` \\ rw [padLen_DEC_eq]);
 val fromChars_safe_ind = theorem"fromChars_safe_ind"
 
@@ -287,13 +318,9 @@ val fromChars_range_eq = Q.store_thm("fromChars_range_eq",
         , maxSmall_DEC_def
         , fromChars_range_split |> SPEC ``8n`` |> SIMP_RULE std_ss [] |> GSYM]);
 
-val fromString_fromChars_range = Q.store_thm("fromString_fromChars_range",
-  `∀str. fromString str = fromChars_range 0 (strlen str) str`,
-  simp [fromString_def, fromChars_range_eq]);
-
 val fromString_thm = Q.store_thm("fromString_thm",
   `∀str. EVERY isDigit str ⇒ fromString (strlit str) = num_from_dec_string str`,
-  simp [fromString_fromChars_range,fromChars_range_thm]);
+  simp [fromString_def,fromChars_range_eq, fromChars_range_thm]);
 
 val fromString_safe_thm = Q.store_thm("fromString_safe_thm",
   `∀str. EVERY isDigit str ⇒
