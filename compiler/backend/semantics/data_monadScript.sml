@@ -1,9 +1,10 @@
 (*
   Define a monad to make dataLang ASTs nicer to work with
 *)
-open preamble dataLangTheory dataSemTheory;
+open preamble dataLangTheory dataSemTheory
 
-val _ = new_theory"data_monad";
+val _ = new_theory"data_monad"
+val _ = preamble.option_monadsyntax.temp_add_option_monadsyntax()
 
 Type M = ``:('c,'ffi) dataSem$state -> (v, v) result option # ('c,'ffi) dataSem$state``
 
@@ -35,66 +36,59 @@ Definition bind_def:
 End
 
 Definition if_var_def:
-  if_var n ^f ^g s =
-    case lookup n s.locals of
-    | NONE => fail s
-    | SOME v => if isBool T v then f s else
-                if isBool F v then g s else fail s
+  if_var n ^f ^g s = the (fail s)
+    do v <- lookup n s.locals;
+       if isBool T v then return (f s)
+       else
+       if isBool F v then return (g s) else fail
+    od
 End
 
 Definition return_def[simp]:
-  return n s =
-    case lookup n s.locals of
-    | NONE => fail s
-    | SOME v => (SOME (Rval v), s with locals := LN)
+  return n ^s = the (fail s)
+    do v <- lookup n s.locals;
+       SOME (SOME (Rval v), s with locals := LN)
+    od
 End
 
 Definition tailcall_def:
-  tailcall dest args ^s =
-    case get_vars args s.locals of
-    | NONE => fail s
-    | SOME vs =>
-      case find_code dest vs s.code of
-      | NONE => fail s
-      | SOME (args,prog) =>
-          if s.clock = 0 then timeout s
-          else
-            let (res,s) = evaluate (prog, call_env args (dec_clock s)) in
-              if res = NONE then fail s else (res,s)
+  tailcall dest args ^s = the (fail s)
+    do vs          <- get_vars args s.locals;
+       (args,prog) <- find_code dest vs s.code;
+       if s.clock = 0 then return (timeout s)
+       else
+         let (res,s) = evaluate (prog, call_env args (dec_clock s)) in
+         do res; return (res,s) od
+    od
 End
 
 Definition call_def:
-  call (n,names) dest args handler s =
-     case get_vars args s.locals of
-     | NONE => fail s
-     | SOME xs =>
-       (case find_code dest xs s.code of
-        | NONE => fail s
-        | SOME (args1,prog) =>
-          (case cut_env names s.locals of
-           | NONE => fail s
-           | SOME env =>
-            if s.clock = 0 then timeout s
-            else
-              (case evaluate (prog, call_env args1
-                     (push_env env (IS_SOME handler) (dec_clock s))) of
-               | (SOME (Rval x),s2) =>
-                  (case pop_env s2 of
-                   | NONE => fail s2
-                   | SOME s1 => (NONE, set_var n x s1))
-               | (SOME (Rerr(Rraise x)),s2) =>
-                  (case handler of (* if handler is present, then handle exc *)
-                   | NONE => (SOME (Rerr(Rraise x)),s2)
-                   | SOME (n,h) => evaluate (h, set_var n x s2))
-               | (NONE,s) => (SOME (Rerr(Rabort Rtype_error)),s)
-               | res => res)))
+  call (n,names) dest args handler s = the (fail s)
+    do xs           <- get_vars args s.locals;
+       (args1,prog) <- find_code dest xs s.code;
+       env          <- cut_env names s.locals;
+       if s.clock = 0 then return (timeout s)
+       else let (res,s2) = evaluate (prog, call_env args1
+                     (push_env env (IS_SOME handler) (dec_clock s)))
+            in return (case res of
+                      | (SOME (Rval x)) =>
+                         (case pop_env s2 of
+                          | NONE => fail s2
+                          | SOME s1 => (NONE, set_var n x s1))
+                      | (SOME (Rerr(Rraise x))) =>
+                         (case handler of (* if handler is present, then handle exc *)
+                          | NONE => (SOME (Rerr(Rraise x)),s2)
+                          | SOME (n,h) => evaluate (h, set_var n x s2))
+                      | NONE => fail s
+                      | res => (res,s2))
+    od
 End
 
 Definition makespace_def:
-  makespace k names s =
-     case cut_env names s.locals of
-     | NONE => fail s
-     | SOME env => (NONE,add_space s k with locals := env)
+  makespace k names s = the (fail s)
+     do env <- cut_env names s.locals;
+        return (NONE,add_space s k with locals := env)
+     od
 End
 
 Definition assign_def:
