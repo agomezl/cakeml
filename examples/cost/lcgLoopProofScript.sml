@@ -1515,19 +1515,26 @@ val max_def = Define`
 
 val put_char_evaluate_max =put_char_evaluate |> PURE_REWRITE_RULE [GSYM max_def]
 
+Theorem repchar_list_no_ptrs_list:
+  ∀blk l ts. repchar_list blk l ts ⇒ no_ptrs_list [blk]
+Proof
+  ho_match_mp_tac repchar_list_ind \\ rw[no_ptrs_list_def,repchar_list_def]
+QED
+
+
 Theorem put_chars_evaluate:
   ∀s block sstack lsize sm l ts.
   (size_of_stack s.stack = SOME sstack) ∧
   (wf s.refs) ∧
-  (closed_ptrs_list (stack_to_vs s) s.refs) ∧
-  no_ptrs_refs s.refs ∧
+  (closed_ptrs (stack_to_vs s) s.refs) ∧
+  (sane_heap s.refs (stack_to_vs s)) ∧
   (s.locals_size = SOME lsize) ∧
   (s.stack_max = SOME sm) ∧
   (s.locals = fromList [block]) ∧
   (s.stack_frame_sizes = lcgLoop_config.word_conf.stack_frame_size) ∧
   (lookup_put_chars s.stack_frame_sizes = SOME lsize) ∧
   (sm < s.limits.stack_limit) ∧
-  (approx_of_heap s + 5 ≤ s.limits.heap_limit) ∧
+  (size_of_heap s + 5 ≤ s.limits.heap_limit) ∧
   (lsize + sstack + 12 < s.limits.stack_limit) ∧
   (sstack + 15 < s.limits.stack_limit) ∧
   s.safe_for_space ∧
@@ -1557,9 +1564,9 @@ Theorem put_chars_evaluate:
     ∨
     ((∃vv. (res = Rval vv)) ∧
      (stk = s.stack) ∧
-     closed_ptrs_list (stack_to_vs s) refs0 ∧ wf refs0 ∧
-     no_ptrs_refs refs0 ∧
-     (approx_of_heap (s with refs := refs0) = approx_of_heap s)))
+     closed_ptrs (stack_to_vs s) refs0 ∧ wf refs0 ∧
+     sane_heap refs0 (stack_to_vs (s with <| locals := lcls0; stack := stk |>)) ∧
+     (size_of_heap (s with refs := refs0) = size_of_heap s)))
 Proof
 let
   val code_lookup   = mk_code_lookup
@@ -1594,6 +1601,7 @@ let
     [(Q.UNABBREV_TAC ‘max0’ \\ fs [small_num_def,size_of_stack_def]),
     ASM_REWRITE_TAC [] \\ ntac 2 (pop_assum kall_tac)]
 in
+
   completeInduct_on`l`
   \\ rw [put_chars_body_def]
   \\ simp [to_shallow_thm, to_shallow_def]
@@ -1610,7 +1618,9 @@ in
       \\ eval_goalsub_tac “sptree$lookup 3 _”
       \\ simp [flush_state_def]
       \\ rw [state_component_equality]
-      \\ fs [stack_to_vs_def,max_def])
+      \\ fs [stack_to_vs_def,max_def]
+      \\ gs [toList_def,toListA_def]
+      \\ fs [sane_heap_block_cons])
   \\ rename1 ‘Block _ _ (chr0::str0)’
   \\ Cases_on ‘chr0’ \\ fs [repchar_list_def]
   \\ Cases_on ‘str0’ \\ fs [repchar_list_def]
@@ -1649,34 +1659,47 @@ in
   \\ Q.UNABBREV_TAC ‘s0’ \\ simp []
   \\ fs [size_of_stack_def,size_of_stack_frame_def]
   \\ impl_tac
-  >- (rw []
-      >- (
-          fs [stack_to_vs_def,closed_ptrs_list_append,extract_stack_def]
+
+  >- (conj_tac
+      >- (fs [stack_to_vs_def,closed_ptrs_APPEND,extract_stack_def]
           \\ eval_goalsub_tac “sptree$toList _”
           \\ eval_goalsub_tac “sptree$toList _”
-          \\ fs [closed_ptrs_list_def]
+          \\ fs [closed_ptrs_def,closed_ptrs_list_def]
           \\ irule closed_ptrs_repchar_list
           \\ asm_exists_tac \\ simp [])
       \\ fs [size_of_heap_def,stack_to_vs_def,extract_stack_def]
       \\ rpt (pairarg_tac \\ fs []) \\ rveq
-      \\ drule dataPropsTheory.size_of_approx_of
-      \\ rw []
-      \\ irule LESS_EQ_TRANS
-      \\ qmatch_asmsub_abbrev_tac ‘approx_of _ ll _ + 5’
-      \\ qexists_tac ‘approx_of s.limits ll  s.refs + 5’
-      \\ fs []
-      \\ irule LESS_EQ_TRANS \\ asm_exists_tac \\ fs []
-      \\ Q.UNABBREV_TAC ‘ll’
+      \\ qmatch_asmsub_abbrev_tac ‘size_of _ (q21 ++ q22 ++ ll1 ++ ll2)’
+      \\ qmatch_asmsub_abbrev_tac ‘size_of _ (q1 ++ ll1 ++ ll2)’
+      \\ qabbrev_tac ‘q2 = q21 ++ q22’
+      \\ qabbrev_tac ‘ll = ll1 ++ ll2’
+      \\ ‘q1 ++ ll1 ++ ll2 = q1 ++ ll’ by simp [APPEND_ASSOC,Abbr‘ll’]
+      \\ pop_assum (gs o single o Req0)
+      \\ ‘q2 ++ ll1 ++ ll2 = q2 ++ ll’ by simp [APPEND_ASSOC,Abbr‘ll’]
+      \\ pop_assum (gs o single o Req0)
+      \\ dxrule size_of_append \\ rw []
+      \\ dxrule size_of_append \\ rw []
+      \\ ntac 2 (pop_assum mp_tac)
+      \\ MAP_EVERY Q.UNABBREV_TAC [‘q1’,‘q2’,‘q21’,‘q22’]
+      \\ ntac 3 (eval_goalsub_tac “sptree$toList _”)
+      \\ ‘small_num T i’ by (fs [small_num_def] \\ intLib.ARITH_TAC)
+      \\ simp [size_of_def]
+      \\ rpt (pairarg_tac \\ fs []) \\ rveq
+      \\ simp [AND_IMP_INTRO] \\ rpt strip_tac \\ rveq
+      \\ qpat_assum ‘sane_heap _ _’ mp_tac
       \\ eval_goalsub_tac “sptree$toList _”
-      \\ eval_goalsub_tac “sptree$toList _”
-      \\ eval_goalsub_tac “sptree$toList _”
-      \\ fs [dataPropsTheory.approx_of_def]
-      \\ ‘small_num s.limits.arch_64_bit i’
-        by (rw [small_num_def] \\ intLib.ARITH_TAC)
-      \\ fs [] \\ rfs []
-      \\ qmatch_goalsub_abbrev_tac ‘approx_of _ (_::ll)’
-      \\ Cases_on ‘ll’
-      \\ fs [dataPropsTheory.approx_of_def])
+      \\ disch_then (mp_then Any mp_tac sane_heap_APPEND_left)
+      \\ disch_then (mp_then Any mp_tac sane_heap_block_MEM)
+      \\ rw[all_blocks_def]
+      \\ pop_assum (mp_then Any mp_tac size_of_seen_no_ptrs_list_ignore)
+      \\ disch_then (qspecl_then [‘s.limits’,‘refs0’,‘seen0’] mp_tac)
+      \\ disch_then drule
+      \\ impl_tac >- metis_tac [repchar_list_no_ptrs_list]
+      \\ rw[]
+      \\ Cases_on ‘lookup ts0 seen0’ \\ gs[] \\ rveq
+      \\ gs[insert_unchanged]
+      (* TODO: prove that once a timestamp is in seen, all internal timestamps should be as well *)
+      \\ cheat)
   \\ rw [GSYM put_char_body_def] \\ simp []
   >- (fs [data_safe_def,frame_lookup,size_of_stack_def,
           call_env_def,push_env_def,dec_clock_def,

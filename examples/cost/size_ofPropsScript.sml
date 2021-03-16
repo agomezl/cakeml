@@ -85,6 +85,13 @@ Proof
   \\ fs []
 QED
 
+Theorem all_blocks_cons_simp:
+  ∀x xs ys. all_blocks (x::xs::ys) = all_blocks [x] ++ all_blocks (xs::ys)
+Proof
+  rw [] \\ qspecl_then [‘[x]’,‘xs::ys’] assume_tac all_blocks_append
+  \\ fs []
+QED
+
 Theorem size_of_cons:
   size_of lims (x::xs) refs seen =
     let (n1,refs1,seen1) = size_of lims xs refs seen in
@@ -1054,6 +1061,26 @@ Proof
   \\ first_x_assum irule \\ simp[]
 QED
 
+Theorem sane_heap_APPEND_right:
+  ∀s xs ys. sane_heap s (xs ++ ys) ⇒ sane_heap s ys
+Proof
+  rw [sane_heap_def,all_blocks_append]
+  \\ qmatch_asmsub_abbrev_tac ‘sane_timestamps (a ++ b ++ c)’
+  \\ ntac 3 (pop_assum kall_tac)
+  \\ irule sane_timestamps_APPEND_left
+  \\ qexists_tac ‘b’
+  \\ first_x_assum (mp_then Any irule sane_timestamps_PERM)
+  \\ SIMP_TAC (std_ss++permLib.PERM_SIMPLE_ss) []
+QED
+
+Theorem sane_heap_APPEND_left:
+  ∀s xs ys. sane_heap s (xs ++ ys) ⇒ sane_heap s xs
+Proof
+  rw[] \\ irule sane_heap_APPEND_right
+  \\ irule_at Any sane_heap_PERM
+  \\ metis_tac [PERM_APPEND]
+QED
+
 Theorem sane_heap_cons_simp:
   (∀refs x xs. sane_heap refs (Number  x::xs) = sane_heap refs xs)
 ∧ (∀refs x xs. sane_heap refs (CodePtr x::xs) = sane_heap refs xs)
@@ -1102,9 +1129,9 @@ Proof
 QED
 
 Theorem sane_heap_block_MEM:
-  ∀refs ts tag vs tag0 vs0.
+  ∀refs ts tag vs.
     sane_heap refs [Block ts tag vs]
-    ⇒ ¬MEM (Block ts tag0 vs0) (all_blocks vs)
+    ⇒ ∀tag0 vs0. ¬MEM (Block ts tag0 vs0) (all_blocks vs)
 Proof
   rw[sane_heap_block_cons] \\ CCONTR_TAC \\ gs[]
   \\ first_x_assum (qspecl_then [‘tag0’,‘vs0’] assume_tac)
@@ -1116,9 +1143,72 @@ Definition no_ptrs_list_def:
   (no_ptrs_list [RefPtr p] = F) ∧
   (no_ptrs_list [Block ts tag l] = no_ptrs_list l) ∧
   (no_ptrs_list [x] = T) ∧
-  (no_ptrs_list (v::vs) = no_ptrs_list [v] ∧ no_ptrs_list vs)
+  (no_ptrs_list (v::vs) = (no_ptrs_list [v] ∧ no_ptrs_list vs))
 Termination
   WF_REL_TAC `(inv_image (measure v1_size) I)`
 End
+
+Theorem size_of_seen_no_ptrs_list_ignore:
+  ∀lims vs refs seen ts n refs1 seen1.
+    (size_of lims vs refs seen = (n,refs1,seen1)) ∧
+    (∀tag l. ¬MEM (Block ts tag l) (all_blocks vs)) ∧
+    no_ptrs_list vs
+    ⇒ (size_of lims vs refs (insert ts () seen) = (n,refs1,insert ts () seen1))
+Proof
+  ho_match_mp_tac size_of_ind \\ fs [size_of_def,no_ptrs_list_def]
+  \\ rpt conj_tac \\ rpt gen_tac \\ strip_tac \\ rpt gen_tac \\ strip_tac
+  >- (rpt (pairarg_tac \\ fs []) \\ rveq
+      \\ gs[all_blocks_cons_simp,MEM_APPEND,FORALL_AND_THM,no_ptrs_list_def]
+      \\ res_tac \\ gs[] \\ rveq \\ gs[])
+  >- (Cases_on ‘ts = ts'’ \\ gs[lookup_insert]
+      >-(Cases_on ‘lookup ts' seen’ \\ gs[]
+         \\ rpt (pairarg_tac \\ fs []) \\ rveq
+         \\ gs[MEM_APPEND,FORALL_AND_THM])
+      >- (Cases_on ‘lookup ts seen’ \\ gs[]
+          \\ rpt (pairarg_tac \\ fs []) \\ rveq
+          \\ first_x_assum drule
+          \\ simp[insert_swap]))
+QED
+
+(* Theorem sane_timestamps_smaller: *)
+(*   sane_timestamps vs *)
+(*   PERM vs (xs ++ ys) *)
+
+
+(* Theorem sane_heap_refs_subspt: *)
+(*   ∀refs1 vs refs2. *)
+(*     subspt refs2 refs1 ∧ *)
+(*     sane_heap refs1 vs *)
+(*     ⇒ sane_heap refs2 vs *)
+(* Proof *)
+(*   rw[sane_heap_def] *)
+
+(* Theorem foo: *)
+(*   ∀lims vs refs seen ts tag l n0 n1 n2 refs0 refs1 refs2 seen0 seen1 seen2. *)
+(*     sane_heap refs (Block ts tag l::vs) ∧ *)
+(*     (size_of lims l refs0 seen0 = (n0,refs,seen)) ∧ *)
+(*     (size_of lims vs refs seen = (n1,refs1,seen1)) ∧ *)
+(*     (size_of lims vs refs (insert ts () seen) = (n2,refs2,seen2)) *)
+(*     ⇒ n2 ≤ n1 + 3 *)
+(* Proof *)
+(*   ho_match_mp_tac size_of_ind \\ fs [size_of_def,no_ptrs_list_def] *)
+(*   \\ rpt conj_tac \\ rpt gen_tac \\ strip_tac \\ rpt gen_tac \\ strip_tac *)
+(*   >- (rpt (pairarg_tac \\ fs []) \\ rveq *)
+(*       \\ qmatch_asmsub_abbrev_tac ‘sane_heap refs (blk::x::_)’ *)
+(*       \\ ‘sane_heap refs (blk::y::ys)’ *)
+(*          by (irule sane_heap_APPEND_right *)
+(*              \\ qexists_tac ‘[x]’ \\ simp[] *)
+(*              \\ irule sane_heap_PERM *)
+(*              \\ first_assum (irule_at Any) *)
+(*              \\ SIMP_TAC (std_ss++permLib.PERM_SIMPLE_ss) []) *)
+(*       \\ qunabbrev_tac ‘blk’ *)
+(*       \\ first_assum dxrule_all \\ rw [] *)
+
+
+(*       \\ gs[all_blocks_cons_simp,MEM_APPEND,FORALL_AND_THM,no_ptrs_list_def] *)
+(*       \\ res_tac \\ gs[] \\ rveq \\ gs[] *)
+(*       \\ *)
+(*       \\ gs[sane_heap_cons] *)
+(*   ) *)
 
 val _ = export_theory();
